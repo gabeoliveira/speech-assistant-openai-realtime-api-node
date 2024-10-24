@@ -4,6 +4,9 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
+
+import twilio from 'twilio';
+
 // Load environment variables from .env file
 dotenv.config();
 // Retrieve the OpenAI API key from environment variables. You must have OpenAI Realtime API access.
@@ -56,7 +59,7 @@ fastify.register(async (fastify) => {
     fastify.get('/media-stream', { websocket: true }, (connection, req) => {
         console.log('Client connected');
         console.log(OPENAI_API_KEY);
-        const openAiWs = new WebSocket('wss://api.openai.com/v1/realtime?model=model=gpt-4o-realtime-preview-2024-10-01', {
+        const openAiWs = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`,
                 "OpenAI-Beta": "realtime=v1"
@@ -138,8 +141,8 @@ fastify.register(async (fastify) => {
             console.log('Client disconnected.');
         });
         // Handle WebSocket close and errors
-        openAiWs.on('close', () => {
-            console.log('Disconnected from the OpenAI Realtime API');
+        openAiWs.on('close', (code, reason) => {
+            console.log(`Disconnected from the OpenAI Realtime API. Code ${code}. Reason: ${reason}`);
         });
         openAiWs.on('error', (error) => {
             console.error('Error in the OpenAI WebSocket:', error);
