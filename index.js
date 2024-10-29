@@ -5,12 +5,10 @@ import dotenv from 'dotenv';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
 
-import twilio from 'twilio';
-
 // Load environment variables from .env file
 dotenv.config();
 // Retrieve the OpenAI API key from environment variables. You must have OpenAI Realtime API access.
-const { OPENAI_API_KEY } = process.env;
+const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
 if (!OPENAI_API_KEY) {
     console.error('Missing OpenAI API key. Please set it in the .env file.');
     process.exit(1);
@@ -19,6 +17,7 @@ if (!OPENAI_API_KEY) {
 const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
+
 
 // Constants
 const SYSTEM_MESSAGE = 'Você é um assistente de IA prestativo e animado, que adora conversar sobre qualquer assunto que interesse ao usuário e está sempre pronto para oferecer fatos. Você tem uma queda por piadas de "pai", piadas com corujas e gosta de dar uma rickroll de vez em quando – sutilmente. Sempre mantenha uma atitude positiva, mas insira uma piada quando for apropriado. Certifique-se de SEMPRE responder em português';
@@ -42,6 +41,8 @@ fastify.get('/', async (request, reply) => {
 // Route for Twilio to handle incoming and outgoing calls
 // <Say> punctuation to improve text-to-speech translation
 fastify.all('/incoming-call', async (request, reply) => {
+
+
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
                           <Response>
                               <Say>Please wait while we connect your call to the A. I. voice assistant, powered by Twilio and the Open-A.I. Realtime API</Say>
@@ -51,6 +52,16 @@ fastify.all('/incoming-call', async (request, reply) => {
                                   <Stream url="wss://${request.headers.host}/media-stream" />
                               </Connect>
                           </Response>`;
+    reply.type('text/xml').send(twimlResponse);
+});
+
+fastify.all('/incoming-call-direct', async (request, reply) => {
+
+
+    const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+                            <Response>
+                                <Redirect>https://webhooks.twilio.com/v1/Accounts/ACe981dae4f716a162dedcb0a1d3a2c168/Flows/FWcd6e2921030bc6ac86f964486b496b78</Redirect>
+                            </Response>`;
     reply.type('text/xml').send(twimlResponse);
 });
 
@@ -150,7 +161,7 @@ fastify.register(async (fastify) => {
     });
 });
 
-fastify.listen({ port: PORT, host: '0.0.0.0' }, (err) => {
+fastify.listen({ port: PORT,host: '0.0.0.0' }, (err) => {
     if (err) {
         console.error(err);
         process.exit(1);
