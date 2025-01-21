@@ -170,19 +170,24 @@ fastify.register(async (fastify) => {
 fastify.register(async (fastify) => {
     fastify.get('/conversation-relay', { websocket: true }, async (connection, req) => {
         console.log('Client connected');
-        console.log(OPENAI_API_KEY);
 
-        const thread = await openai.beta.threads.create();
-
-        console.log(thread);
-
+        let thread;
+        
         // Handle incoming messages from Twilio
         connection.on('message', async (message) => {
             try {
                 const data = JSON.parse(message);
                 console.log(data);
                 switch (data.type) {
+                    case 'setup':
+                        console.log('Setup Message');
+                        thread = await openai.beta.threads.create();
+                        break;
                     case 'prompt':
+                        if (!thread) {
+                            connection.send(JSON.stringify({ type: 'error', message: 'Thread not initialized.' }));
+                            return;
+                        }
                         const message = await openai.beta.threads.messages.create(
                             thread.id,
                             {
@@ -227,10 +232,6 @@ fastify.register(async (fastify) => {
                                 }
                                 }
                             });
-                        break;
-                    case 'start':
-                        streamSid = data.start.streamSid;
-                        console.log('Incoming stream has started', streamSid);
                         break;
                     default:
                         console.log('Received non-media event:', data.event);
