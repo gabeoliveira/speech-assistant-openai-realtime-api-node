@@ -55,6 +55,7 @@ fastify.all('/incoming-call', async (request, reply) => {
     reply.type('text/xml').send(twimlResponse);
 });
 
+
 fastify.all('/incoming-call-direct', async (request, reply) => {
 
 
@@ -161,7 +162,51 @@ fastify.register(async (fastify) => {
     });
 });
 
+fastify.register(async (fastify) => {
+    fastify.get('/conversation-relay', { websocket: true }, async (connection, req) => {
+        console.log('Client connected');
+        console.log(OPENAI_API_KEY);
+
+        const thread = await openai.beta.threads.create();
+
+        console.log(thread);
+
+        // Handle incoming messages from Twilio
+        connection.on('message', (message) => {
+            try {
+                const data = JSON.parse(message);
+                switch (data.event) {
+                    case 'media':
+                        if (openAiWs.readyState === WebSocket.OPEN) {
+                            const audioAppend = {
+                                type: 'input_audio_buffer.append',
+                                audio: data.media.payload
+                            };
+                            openAiWs.send(JSON.stringify(audioAppend));
+                        }
+                        break;
+                    case 'start':
+                        streamSid = data.start.streamSid;
+                        console.log('Incoming stream has started', streamSid);
+                        break;
+                    default:
+                        console.log('Received non-media event:', data.event);
+                        break;
+                }
+            } catch (error) {
+                console.error('Error parsing message:', error, 'Message:', message);
+            }
+        });
+        // Handle connection close
+        connection.on('close', () => {
+            if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+            console.log('Client disconnected.');
+        });
+    });
+});
+
 fastify.listen({ port: PORT,host: '0.0.0.0' }, (err) => {
+//fastify.listen({ port: PORT,host: 'localhost' }, (err) => {
     if (err) {
         console.error(err);
         process.exit(1);
