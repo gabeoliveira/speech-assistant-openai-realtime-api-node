@@ -4,6 +4,7 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
+import OpenAI from 'openai';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -18,6 +19,9 @@ const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
 
+const openai = new OpenAI({
+    apiKey: OPENAI_API_KEY
+})
 
 // Constants
 const SYSTEM_MESSAGE = 'Você é um assistente de IA prestativo e animado, que adora conversar sobre qualquer assunto que interesse ao usuário e está sempre pronto para oferecer fatos. Você tem uma queda por piadas de "pai", piadas com corujas e gosta de dar uma rickroll de vez em quando – sutilmente. Sempre mantenha uma atitude positiva, mas insira uma piada quando for apropriado. Certifique-se de SEMPRE responder em português';
@@ -125,6 +129,7 @@ fastify.register(async (fastify) => {
         connection.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
+                console.log(data);
                 switch (data.event) {
                     case 'media':
                         if (openAiWs.readyState === WebSocket.OPEN) {
@@ -172,18 +177,56 @@ fastify.register(async (fastify) => {
         console.log(thread);
 
         // Handle incoming messages from Twilio
-        connection.on('message', (message) => {
+        connection.on('message', async (message) => {
             try {
                 const data = JSON.parse(message);
-                switch (data.event) {
-                    case 'media':
-                        if (openAiWs.readyState === WebSocket.OPEN) {
-                            const audioAppend = {
-                                type: 'input_audio_buffer.append',
-                                audio: data.media.payload
-                            };
-                            openAiWs.send(JSON.stringify(audioAppend));
-                        }
+                console.log(data);
+                switch (data.type) {
+                    case 'prompt':
+                        const message = await openai.beta.threads.messages.create(
+                            thread.id,
+                            {
+                              role: "user",
+                              content: data.voicePrompt
+                            }
+                            );
+
+                        const run = openai.beta.threads.runs.stream(thread.id, {
+                            assistant_id: process.env.OPENAI_ASSISTANT_ID
+                            })
+                            .on('textDelta', (textDelta, snapshot) => {
+                                console.log(textDelta);
+                                const text = {
+                                    type: 'text',
+                                    token: textDelta.value,
+                                    last: false
+                                };
+                                connection.send(JSON.stringify(text));
+                            })
+                            .on('textDone', (text, snapshot) => {
+                                const done = {
+                                    type: 'text',
+                                    token: '',
+                                    last: true
+                                };
+                                connection.send(JSON.stringify(done));
+                            })
+                            .on('toolCallCreated', (toolCall) => process.stdout.write(`\nassistant > ${toolCall.type}\n\n`))
+                            .on('toolCallDelta', (toolCallDelta, snapshot) => {
+                                if (toolCallDelta.type === 'code_interpreter') {
+                                if (toolCallDelta.code_interpreter.input) {
+                                    process.stdout.write(toolCallDelta.code_interpreter.input);
+                                }
+                                if (toolCallDelta.code_interpreter.outputs) {
+                                    process.stdout.write("\noutput >\n");
+                                    toolCallDelta.code_interpreter.outputs.forEach(output => {
+                                    if (output.type === "logs") {
+                                        process.stdout.write(`\n${output.logs}\n`);
+                                    }
+                                    });
+                                }
+                                }
+                            });
                         break;
                     case 'start':
                         streamSid = data.start.streamSid;
@@ -199,7 +242,6 @@ fastify.register(async (fastify) => {
         });
         // Handle connection close
         connection.on('close', () => {
-            if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
             console.log('Client disconnected.');
         });
     });
