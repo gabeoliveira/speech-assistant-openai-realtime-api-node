@@ -224,6 +224,7 @@ fastify.register(async (fastify) => {
         console.log('Client connected');
 
         let thread;
+        let isRunActive = false;
         let conversationParams = {};
         
         // Handle incoming messages from Twilio
@@ -248,13 +249,21 @@ fastify.register(async (fastify) => {
                             connection.send(JSON.stringify({ type: 'error', message: 'Thread not initialized.' }));
                             return;
                         }
-                        const message = await openai.beta.threads.messages.create(
+
+                        if(isRunActive){
+                            console.log('Active Run: ignoring prompt');
+                            return;
+                        }
+
+                        await openai.beta.threads.messages.create(
                             thread.id,
                             {
                               role: "user",
                               content: data.voicePrompt
                             }
                             );
+                        
+                        isRunActive = true;
 
                         const run = openai.beta.threads.runs.stream(thread.id, {
                             assistant_id: process.env.OPENAI_ASSISTANT_ID
@@ -274,6 +283,7 @@ fastify.register(async (fastify) => {
                                     last: true
                                 };
                                 connection.send(JSON.stringify(done));
+                                isRunActive = false;
                                 trackEvent(conversationParams.user_id, 'Assistant Interaction Sent', {body: text.value});
 
                             })
@@ -311,7 +321,6 @@ fastify.register(async (fastify) => {
 });
 
 fastify.listen({ port: PORT,host: '0.0.0.0' }, (err) => {
-//fastify.listen({ port: PORT,host: 'localhost' }, (err) => {
     if (err) {
         console.error(err);
         process.exit(1);
