@@ -9,10 +9,12 @@ import OpenAI from 'openai';
 // Load environment variables from .env file
 dotenv.config();
 
-import { trackEvent, flushAnalytics } from './helpers/segment.js';
+import { trackEvent } from './helpers/segment.js';
+import { createDocument, getDocument } from './helpers/sync.js';
+import { hallucinationCheck, conversationQuality } from './helpers/quality.js';
 
 // Retrieve the OpenAI API key from environment variables. You must have OpenAI Realtime API access.
-const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
+const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
     console.error('Missing OpenAI API key. Please set it in the .env file.');
     process.exit(1);
@@ -71,6 +73,53 @@ fastify.all('/incoming-call-direct', async (request, reply) => {
                                 <Redirect>https://webhooks.twilio.com/v1/Accounts/ACe981dae4f716a162dedcb0a1d3a2c168/Flows/FWcd6e2921030bc6ac86f964486b496b78</Redirect>
                             </Response>`;
     reply.type('text/xml').send(twimlResponse);
+});
+
+fastify.post('/call-post-processing', async (request, reply) => {
+    console.log(request.body);
+
+    const { SessionId: sessionId, SessionDuration: sessionDuration } = request.body;
+
+    const { thread: threadId } = await getDocument(`session_${sessionId}`);
+
+    const thread = await openai.beta.threads.retrieve(
+        threadId
+      );
+    
+    const { metadata } = thread;
+
+    const threadMessages = await openai.beta.threads.messages.list(
+        threadId,
+        {limit: 100}
+      );
+
+    const strippedMessages = threadMessages.data.map(message => {
+        return {
+            role: message.role,
+            content: message.content
+        }
+    } )
+    
+    /*try {
+        fs.writeFileSync('messages.json', JSON.stringify(strippedMessages, null, 2));
+        console.log(`Data successfully saved to ${filePath}`);
+      } catch (error) {
+        console.error('Error writing to file:', error);
+      }*/
+
+    const hallucinationData = await hallucinationCheck(strippedMessages);
+    const qualityData = await conversationQuality(strippedMessages);
+
+    console.log(qualityData);
+
+    const eventData = {
+        conversation_duration: sessionDuration,
+        ...hallucinationData,
+        ...qualityData
+    }
+
+    trackEvent(metadata.userId, 'Outbound Call Completed', eventData);
+
 });
 
 // WebSocket route for media-stream
@@ -186,8 +235,13 @@ fastify.register(async (fastify) => {
                     case 'setup':
                         console.log('Setup Message');
                         conversationParams = { ...data.customParameters };
-                        thread = await openai.beta.threads.create();
+                        thread = await openai.beta.threads.create({ metadata: {
+                             sessionId: data.sessionId,
+                             userId: conversationParams.user_id
+                             } 
+                        });
                         trackEvent(data.customParameters.user_id, 'Outbound Call Answered', {reason: data.customParameters.reason});
+                        createDocument(`session_${data.sessionId}`, {thread: thread.id});
                         break;
                     case 'prompt':
                         if (!thread) {
@@ -206,7 +260,6 @@ fastify.register(async (fastify) => {
                             assistant_id: process.env.OPENAI_ASSISTANT_ID
                             })
                             .on('textDelta', (textDelta, snapshot) => {
-                                console.log(textDelta);
                                 const text = {
                                     type: 'text',
                                     token: textDelta.value,

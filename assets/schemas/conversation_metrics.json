@@ -1,0 +1,47 @@
+{
+    "name": "feedback_schema",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "voice_friendly": {
+          "type": "number",
+          "description": "Score indicating voice-friendly nature."
+        },
+        "understanding": {
+          "type": "number",
+          "description": "Score for understanding from the conversation."
+        },
+        "handling": {
+          "type": "number",
+          "description": "Score for handling of the prompts."
+        },
+        "conciseness": {
+          "type": "number",
+          "description": "Score representing conciseness in responses."
+        },
+        "avoid_repetition": {
+          "type": "number",
+          "description": "Score indicating avoidance of repetition."
+        },
+        "conversation_quality": {
+          "type": "number",
+          "description": "Score reflecting the overall quality of conversation."
+        },
+        "prompt_changes_suggestion": {
+          "type": "string",
+          "description": "Suggestions for changes to prompts to enhance quality."
+        }
+      },
+      "required": [
+        "voice_friendly",
+        "understanding",
+        "handling",
+        "conciseness",
+        "avoid_repetition",
+        "conversation_quality",
+        "prompt_changes_suggestion"
+      ],
+      "additionalProperties": false
+    },
+    "strict": true
+  }
