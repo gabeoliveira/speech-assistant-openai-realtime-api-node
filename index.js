@@ -8,6 +8,9 @@ import OpenAI from 'openai';
 
 // Load environment variables from .env file
 dotenv.config();
+
+import { trackEvent, flushAnalytics } from './helpers/segment.js';
+
 // Retrieve the OpenAI API key from environment variables. You must have OpenAI Realtime API access.
 const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
 if (!OPENAI_API_KEY) {
@@ -172,6 +175,7 @@ fastify.register(async (fastify) => {
         console.log('Client connected');
 
         let thread;
+        let conversationParams = {};
         
         // Handle incoming messages from Twilio
         connection.on('message', async (message) => {
@@ -181,7 +185,9 @@ fastify.register(async (fastify) => {
                 switch (data.type) {
                     case 'setup':
                         console.log('Setup Message');
+                        conversationParams = { ...data.customParameters };
                         thread = await openai.beta.threads.create();
+                        trackEvent(data.customParameters.user_id, 'Outbound Call Answered', {reason: data.customParameters.reason});
                         break;
                     case 'prompt':
                         if (!thread) {
@@ -215,6 +221,8 @@ fastify.register(async (fastify) => {
                                     last: true
                                 };
                                 connection.send(JSON.stringify(done));
+                                trackEvent(conversationParams.user_id, 'Assistant Interaction Sent', {body: text.value});
+
                             })
                             .on('toolCallCreated', (toolCall) => process.stdout.write(`\nassistant > ${toolCall.type}\n\n`))
                             .on('toolCallDelta', (toolCallDelta, snapshot) => {
@@ -232,6 +240,7 @@ fastify.register(async (fastify) => {
                                 }
                                 }
                             });
+                        trackEvent(conversationParams.user_id, 'Message Received', {body: data.voicePrompt});
                         break;
                     default:
                         console.log('Received non-media event:', data.event);
