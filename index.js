@@ -236,14 +236,23 @@ fastify.register(async (fastify) => {
                     case 'setup':
                         console.log('Setup Message');
                         conversationParams = { ...data.customParameters };
-                        thread = await openai.beta.threads.create({ metadata: {
-                             sessionId: data.sessionId,
-                             userId: conversationParams.user_id
-                             } 
+                        thread = await openai.beta.threads.create({ 
+                            messages:[
+                                {
+                                    role: 'user',
+                                    content: JSON.stringify(conversationParams)
+                                }
+                            ],
+                            metadata: {
+                                sessionId: data.sessionId,
+                                userId: conversationParams.user_id
+                            } 
                         });
+
                         trackEvent(data.customParameters.user_id, 'Outbound Call Answered', {reason: data.customParameters.reason});
                         createDocument(`session_${data.sessionId}`, {thread: thread.id});
                         break;
+                        
                     case 'prompt':
                         if (!thread) {
                             connection.send(JSON.stringify({ type: 'error', message: 'Thread not initialized.' }));
