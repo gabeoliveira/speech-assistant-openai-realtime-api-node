@@ -74,11 +74,18 @@ export const conversationQuality = async (messages) => {
     // Parse the schema JSON content
     const schema = JSON.parse(schemaContent);
 
+    const { instructions } = await openai.beta.assistants.retrieve(
+      process.env.OPENAI_ASSISTANT_ID
+    );
+  
+    console.log(instructions);
+
     // Make a request to OpenAI's chat completion API
     const response = await openai.chat.completions.create({
         model: 'gpt-4o', 
         messages: [
             { role: 'system', content: promptContent },
+            { role: 'user', content: instructions},
             { role: 'user', content: JSON.stringify(messages)}
         ],
         max_tokens: 10000, 
