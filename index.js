@@ -320,7 +320,8 @@ fastify.register(async (fastify) => {
                                                                                 
                                                 const event = await trackEvent(functionArguments.user_id, 'Appointment Booked', {...functionArguments});                       
 
-                                                const output = await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                const stream = await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    stream: true,
                                                     tool_outputs: [
                                                         {
                                                             tool_call_id: toolCall.id,
@@ -328,9 +329,23 @@ fastify.register(async (fastify) => {
                                                         }
                                                     ]});
 
-                                               
 
-                                            } catch (err){
+                                                    for await (const event of stream) {
+                                                        if(event.event === 'thread.message.delta'){
+                                                            console.log('Message Delta');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: event.data.delta.content[0].text.value,
+                                                                last: false
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+
+                                                        }
+                                                        
+                                                      }
+
+
+                                            } catch(err){
                                                 console.error('Error handling tool call:', err);
 
                                                 // Handle failure scenario by submitting an error response to the assistant
@@ -345,7 +360,11 @@ fastify.register(async (fastify) => {
                                                         }
                                                     ]
                                                 });
+
+                    
+
                                             }
+
                                             break;
 
                                         case 'get_insurance_info':
