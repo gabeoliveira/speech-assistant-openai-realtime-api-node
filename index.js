@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
 import OpenAI from 'openai';
+import shortid from 'shortid';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -12,6 +13,10 @@ dotenv.config();
 import { trackEvent } from './helpers/segment.js';
 import { createDocument, getDocument } from './helpers/sync.js';
 import { hallucinationCheck, conversationQuality } from './helpers/quality.js';
+import petInsurancePlans from './assets/constants/insurance-plans.js';
+
+
+
 
 // Retrieve the OpenAI API key from environment variables. You must have OpenAI Realtime API access.
 const { OPENAI_API_KEY } = process.env;
@@ -224,6 +229,7 @@ fastify.register(async (fastify) => {
         console.log('Client connected');
 
         let thread;
+        let runId;
         let isRunActive = false;
         let conversationParams = {};
         
@@ -252,7 +258,7 @@ fastify.register(async (fastify) => {
                         trackEvent(data.customParameters.user_id, 'Outbound Call Answered', {reason: data.customParameters.reason});
                         createDocument(`session_${data.sessionId}`, {thread: thread.id});
                         break;
-                        
+
                     case 'prompt':
                         if (!thread) {
                             connection.send(JSON.stringify({ type: 'error', message: 'Thread not initialized.' }));
@@ -277,6 +283,11 @@ fastify.register(async (fastify) => {
                         const run = openai.beta.threads.runs.stream(thread.id, {
                             assistant_id: process.env.OPENAI_ASSISTANT_ID
                             })
+                            .on('runStepCreated', (runStep) => {
+                                runId = runStep.run_id;
+                                console.log(runId);
+
+                            })
                             .on('textDelta', (textDelta, snapshot) => {
                                 const text = {
                                     type: 'text',
@@ -296,20 +307,169 @@ fastify.register(async (fastify) => {
                                 trackEvent(conversationParams.user_id, 'Assistant Interaction Sent', {body: text.value});
 
                             })
-                            .on('toolCallCreated', (toolCall) => process.stdout.write(`\nassistant > ${toolCall.type}\n\n`))
-                            .on('toolCallDelta', (toolCallDelta, snapshot) => {
-                                if (toolCallDelta.type === 'code_interpreter') {
-                                if (toolCallDelta.code_interpreter.input) {
-                                    process.stdout.write(toolCallDelta.code_interpreter.input);
-                                }
-                                if (toolCallDelta.code_interpreter.outputs) {
-                                    process.stdout.write("\noutput >\n");
-                                    toolCallDelta.code_interpreter.outputs.forEach(output => {
-                                    if (output.type === "logs") {
-                                        process.stdout.write(`\n${output.logs}\n`);
+                            .on('toolCallDone', async (toolCall) => {
+                                console.log(toolCall);
+
+                                if(toolCall.type === 'function'){
+                                    const functionArguments = JSON.parse(toolCall.function.arguments);
+                                    
+                                    switch(toolCall.function.name){
+                                        case 'schedule_vaccination':
+                                            try{
+
+                                                                                
+                                                const event = await trackEvent(functionArguments.user_id, 'Appointment Booked', {...functionArguments});                       
+
+                                                const output = await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify(event)
+                                                        }
+                                                    ]});
+
+                                               
+
+                                            } catch (err){
+                                                console.error('Error handling tool call:', err);
+
+                                                // Handle failure scenario by submitting an error response to the assistant
+                                                await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify({
+                                                                message: 'There was an error booking the appointment. Please try again.',
+                                                                success: false
+                                                            })
+                                                        }
+                                                    ]
+                                                });
+                                            }
+                                            break;
+
+                                        case 'get_insurance_info':
+                                            try{
+
+                                                const stream = await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    stream: true,
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify(petInsurancePlans)
+                                                        }
+                                                    ]});
+
+
+                                                    for await (const event of stream) {
+                                                        if(event.event === 'thread.message.delta'){
+                                                            console.log('Message Delta');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: event.data.delta.content[0].text.value,
+                                                                last: false
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+
+                                                        }
+
+                                                        else if(event.event === 'thread.run.completed'){
+                                                            console.log('Message Done');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: '',
+                                                                last: true
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+                                                            isRunActive = false;
+
+                                                        }
+                                                        
+                                                      }
+
+
+                                            } catch(err){
+                                                console.error('Error handling tool call:', err);
+
+                                                // Handle failure scenario by submitting an error response to the assistant
+                                                await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify({
+                                                                message: 'There was an error booking the appointment. Please try again.',
+                                                                success: false
+                                                            })
+                                                        }
+                                                    ]
+                                                });
+
+                    
+
+                                            }
+
+                                        break;
+
+                                        case 'insurance_quote':
+                                            try{
+
+                                                const id = shortid.generate();
+                                                console.log(id);
+
+                                                const event = await trackEvent(functionArguments.user_id, 'Insurance Quote Started', {...functionArguments, quote_id: id});                       
+
+                                                const stream = await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    stream: true,
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify(event)
+                                                        }
+                                                    ]});
+
+
+                                                    for await (const event of stream) {
+                                                        if(event.event === 'thread.message.delta'){
+                                                            console.log('Message Delta');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: event.data.delta.content[0].text.value,
+                                                                last: false
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+
+                                                        }
+                                                        
+                                                      }
+
+
+                                            } catch(err){
+                                                console.error('Error handling tool call:', err);
+
+                                                // Handle failure scenario by submitting an error response to the assistant
+                                                await openai.beta.threads.runs.submitToolOutputs(thread.id, runId, {
+                                                    tool_outputs: [
+                                                        {
+                                                            tool_call_id: toolCall.id,
+                                                            output: JSON.stringify({
+                                                                message: 'There was an error booking the appointment. Please try again.',
+                                                                success: false
+                                                            })
+                                                        }
+                                                    ]
+                                                });
+
+                    
+
+                                            }
+
+                                        break;
+
+                                        default:
+                                            console.log('No function');
+                                            break;
+                                           
                                     }
-                                    });
-                                }
                                 }
                             });
                         trackEvent(conversationParams.user_id, 'Message Received', {body: data.voicePrompt});
