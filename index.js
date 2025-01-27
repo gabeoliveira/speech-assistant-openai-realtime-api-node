@@ -341,6 +341,17 @@ fastify.register(async (fastify) => {
                                                             connection.send(JSON.stringify(text));
 
                                                         }
+                                                        else if(event.event === 'thread.run.completed'){
+                                                            console.log('Message Done');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: '',
+                                                                last: true
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+                                                            isRunActive = false;
+
+                                                        }
                                                         
                                                       }
 
@@ -456,6 +467,17 @@ fastify.register(async (fastify) => {
                                                                 last: false
                                                             };
                                                             connection.send(JSON.stringify(text));
+
+                                                        }
+                                                        else if(event.event === 'thread.run.completed'){
+                                                            console.log('Message Done');
+                                                            const text = {
+                                                                type: 'text',
+                                                                token: '',
+                                                                last: true
+                                                            };
+                                                            connection.send(JSON.stringify(text));
+                                                            isRunActive = false;
 
                                                         }
                                                         
